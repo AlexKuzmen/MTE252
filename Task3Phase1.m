@@ -1,6 +1,6 @@
 %Call this file from another script with <"audioname.ext"> as parameter
 %Include "audioname.ext" in the same folder as this script (add to path)
-function Task3Phase1(filename) % Tasks 3.1–3.7
+function T3P1(filename) % Tasks 3.1–3.7
 
 % 3.1 Get file and get sampling rate
 [y, fs] = audioread(filename);
@@ -30,9 +30,9 @@ grid on;
 % 3.6 Downsample to 16 kHz only if fs > 16 kHz
 if fs > 16000
     try
-        y16 = audioresample(y, 16000, fs); %newer need to install
+        y16 = resample(y, 16000, fs); %newer need to install
     catch
-        y16 = resample(y, 16000, fs); %may error out
+        y16 = audioresample(y, 16000, fs); %may error out
     end
     fs16 = 16000;
     fprintf('Resampled to 16kHz, use <y16> and <fs16>: %g Hz\n', fs16);
@@ -47,7 +47,7 @@ t = (0:size(y,1)-1)/fs; %time duration equal to input signal?
 cos_signal = cos(1000*2*pi*t); %one waveform
 
 % Play the cosine
-sound(cos_signal, fs);%play sound same as input signal! fs16 will make it sound lower
+sound(cos_signal, fs);%play sound same as input signal! fs16 will make it sound lower and longer
 
 % Plot exactly two cycles (2 ms at 1 kHz). Confusing but works as a mask,
 % not sure how else to do this more efficiently
@@ -59,3 +59,5 @@ ylabel('Amplitude');
 title('Two Cycles of 1 kHz Cosine'); grid on;
 
 end
+
+T3P1("Recording.m4a"); %input string filename
