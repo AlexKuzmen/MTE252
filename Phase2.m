@@ -59,19 +59,106 @@ ylabel('Amplitude');
 title('Two Cycles of 1 kHz Cosine'); grid on;
 %}
 
-% 4.0 Bandpass filter bank
+% 4.0 Bandpass filter bank---------------------------------------------
+N=12; fmin=100; fmax=8000;
 
+% 5.0 Filter sound
+[filtered,bands] = filterBankButter(y16,fs16,N,fmin,fmax);
+
+% 6.0 plot lowest and highest frequency channels
+%sound(filtered(:,1), fs16); %1 to N channels
+
+t = (0:length(y16)-1)/fs16; %seconds
+
+figure;
+%Zoom in to see slower oscillations
+subplot(2,2,1);
+plot(t, filtered(:,1));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title(sprintf('Lowest Frequency Channel from %.0f to %.0f Hz', bands(1,2), bands(1,3))); %format string with fpass1 and fpass2
+
+%Zoom in to see faster oscillations
+subplot(2,2,2);
+plot(t, filtered(:,N));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title(sprintf('Highest Frequency Channel from %.0f to %.0f Hz', bands(N,2), bands(N,3)));
+
+% 7.0 Rectify Step1: abs value
+rectified = abs(filtered);
+
+% 8.0 Envelope LPF with 400Hz
+cutoff = 400;      
+poles  = 6;  %as with BPF, inc. is higher roll-off but more computation      
+
+lpf = designfilt('lowpassiir', ...
+    'FilterOrder', poles, ...
+    'HalfPowerFrequency', cutoff, ...
+    'DesignMethod','butter', ...
+    'SampleRate', fs16);
+
+envelope = filter(lpf, rectified);
+
+% 9.0 Plot lowest and highest frequency channels
+subplot(2,2,3);
+plot(t, envelope(:,1));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title('Envelope of Lowest Frequency Channel');
+
+subplot(2,2,4);
+plot(t, envelope(:,N));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title('Envelope of Highest Frequency Channel');
+sgtitle(filename);
 end
 
-%input string filename
+%%
+function [filtered,bands] = filterBankButter(y16,fs16,N,fmin,fmax)
+    % Butterworth Bandpass filter designed using FDESIGN.BANDPASS. but
+    % modified heavily!!!
+    
+    y16 = y16(:); %note: fmax = fs/2
+    nyq = fs16/2+1; %must be below 8000 in filterdesigner
+    fmax = min(fmax,nyq-1); %here fmax is less than nyq (as output is weird)
+
+    edges = logspace(log10(fmin), log10(fmax), N+1); %spaces them out equally
+    filtered = zeros(numel(y16), N);
+    bands = zeros(N,4);  % [4 criteria for bandpass below]
+
+    for i = 1:N %split from fmin to fmax
+        fpass1 = edges(i);
+        fpass2 = edges(i+1);
+
+        fstop1 = max(100, 0.85*fpass1);
+        fstop2 = min(nyq-1, 1.15*fpass2);
+
+        poles = 6; %higher is greater drop but more computation
+
+        d = designfilt('bandpassiir', ...
+            'FilterOrder', poles, ...
+            'HalfPowerFrequency1', fpass1, ...
+            'HalfPowerFrequency2', fpass2, ...
+            'DesignMethod','butter', ...
+            'SampleRate', fs16);
+
+        filtered(:,i) = filter(d, double(y16)); %Zero-phase digital filtering, not for FIR since they depend on phase?
+        bands(i,:) = [fstop1 fpass1 fpass2 fstop2];
+        
+    end
+end
+
+%% input string filename, Do Phase 1 then phase 2
 T3P1("FCL.m4a"); %1
-T3P1("FCQ.m4a"); %2
-T3P1("FVL.m4a"); %3
-T3P1("FVQL.m4a");%4
-T3P1("MCL.m4a"); %5
-T3P1("MCQ.m4a"); %6
-T3P1("ML.m4a");  %7
-T3P1("MQ.m4a");  %8
-T3P1("MVL.m4a"); %9
-T3P1("MVQ.m4a"); %10
+% T3P1("FCQ.m4a"); %2
+% T3P1("FVL.m4a"); %3
+% T3P1("FVQL.m4a");%4
+% T3P1("MCL.m4a"); %5
+% T3P1("MCQ.m4a"); %6
+% T3P1("ML.m4a");  %7
+% T3P1("MQ.m4a");  %8
+% T3P1("MVL.m4a"); %9
+% T3P1("MVQ.m4a"); %10
 
