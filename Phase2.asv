@@ -131,13 +131,12 @@ out = out ./ max(abs(out)+eps); % norm. signal by max of its abs values
 
 % T13 Play sound/write to file
 sound(out, fs16)
-audiowrite("Phase 3/" + filename + ".wav", out, fs16);
-end 
 
-% ==================================
-% Function definitions
-% ==================================
 
+
+end
+
+%%
 function [filtered,bands] = filterBankButter(y16,fs16,N,fmin,fmax)
     % Butterworth Bandpass filter designed using FDESIGN.BANDPASS. but
     % modified heavily!!!
