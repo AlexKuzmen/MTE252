@@ -1,0 +1,236 @@
+%Call this file from another script with <"audioname.ext"> as parameter
+%Include "audioname.ext" in the same folder as this script (add to path)
+function T3P1(filename) % Tasks 3.1–3.7
+
+% 3.1 Get file and get sampling rate
+[y, fs] = audioread(filename);
+fprintf('Sampling rate of input file: %g Hz\n', fs);
+
+% 3.2 Convert to Mono if stereo (add them but also should divide by 2)
+if size(y,2) == 2
+    y = (y(:,1) + y(:,2))/2; %averaged two columns
+end
+
+% 3.3 Play Mono Sound
+%sound(y, fs);
+
+% 3.4 Write Mono Sound to a new file
+output_file="new_"+filename;
+%audiowrite(output_file,y,fs); %save to folder
+fprintf('Added mono file to same folder as this matlab with same frequency: %s\n', output_file);
+
+% 3.5 Plot waveform vs sample number
+figure; 
+plot(y); %already as sample number
+xlabel('Sample Number'); 
+ylabel('Amplitude');
+title("Waveform " + filename + " vs Sample Number"); 
+grid on;
+
+% 3.6 Downsample to 16 kHz only if fs > 16 kHz
+if fs > 16000
+    try
+        y16 = resample(y, 16000, fs); %newer need to install
+    catch
+        y16 = audioresample(y, 16000, fs); %may error out
+    end
+    fs16 = 16000;
+    fprintf('Resampled to 16kHz, use <y16> and <fs16>: %g Hz\n', fs16);
+else
+    % Per 3.6: if original fs < 16 kHz, better to redo 3.1 with a higher-rate file
+    warning('Input fs (%g Hz) <= 16 kHz. Skipping resample per Task 3.6 & error out.', fs);
+    quit;
+end
+
+%{
+% 3.7 Generate 1 kHz cosine with same duration/length; play and plot 2 cycles
+t = (0:size(y,1)-1)/fs; %time duration equal to input signal?
+cos_signal = cos(1000*2*pi*t); %one waveform
+
+% Play the cosine
+sound(cos_signal, fs);%play sound same as input signal! fs16 will make it sound lower and longer
+
+% Plot exactly two cycles (2 ms at 1 kHz). Works as a "mask"
+T = 2/1000; %time for 2 cycles               
+two_cycles = t <= T; %bound it to 2/1000 seconds              
+figure; plot(t(two_cycles), cos_signal(two_cycles)); %accessing t @proper time
+xlabel('Time (s)'); 
+ylabel('Amplitude');
+title('Two Cycles of 1 kHz Cosine'); grid on;
+%}
+
+% 4.0 Bandpass filter bank---------------------------------------------
+N=12; fmin=100; fmax=8000;
+
+% 5.0 Filter sound
+[filtered,bands] = filterBankButter(y16,fs16,N,fmin,fmax);
+
+% 6.0 plot lowest and highest frequency channels
+%sound(filtered(:,1), fs16); %1 to N channels
+
+t = (0:length(y16)-1)/fs16; %seconds
+
+figure;
+%Zoom in to see slower oscillations
+subplot(2,2,1);
+plot(t, filtered(:,1));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title(sprintf('Lowest Frequency Channel from %.0f to %.0f Hz', bands(1,2), bands(1,3))); %format string with fpass1 and fpass2
+
+%Zoom in to see faster oscillations
+subplot(2,2,2);
+plot(t, filtered(:,N));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title(sprintf('Highest Frequency Channel from %.0f to %.0f Hz', bands(N,2), bands(N,3)));
+
+% 7.0 Rectify Step1: abs value
+rectified = abs(filtered);
+
+% 8.0 Envelope LPF with 400Hz (MODIFIED FOR PHASE-3)
+useOverlap = false;   
+% Set to true  → uses overlap-add windowing (frame-based)
+% Set to false → uses original IIR low-pass envelope smoothing
+
+if ~useOverlap
+    % --------------------------------------------------------
+    % OPTION A — Original IIR Envelope (No Overlap)
+    % --------------------------------------------------------
+    cutoff = 400;      % Hz
+    poles  = 6;        % LPF order
+
+    lpf = designfilt('lowpassiir', ...
+        'FilterOrder', poles, ...
+        'HalfPowerFrequency', cutoff, ...
+        'DesignMethod','butter', ...
+        'SampleRate', fs16);
+
+    envelope = filter(lpf, rectified);
+
+else
+    % --------------------------------------------------------
+    % OPTION B — Overlap-Add Envelope Extraction
+    % --------------------------------------------------------
+    % User controls window length and overlap here:
+
+    win_len = round(0.02 * fs16);  % 20 ms window
+    overlap = 0.50;                % <-- CHANGE THIS (0 to 0.9)
+    hop = round(win_len * (1 - overlap));
+    window = hamming(win_len);
+
+    fprintf('Using %.0f ms window with %.0f%% overlap.\n', ...
+        win_len/fs16*1000, overlap*100);
+
+    % Prepare output
+    envelope = zeros(size(rectified));
+
+    for ch = 1:N
+        idx = 1;
+        while idx + win_len - 1 <= length(rectified)
+            frame = rectified(idx:idx+win_len-1, ch);
+
+            % rectification AND window weighting
+            envFrame = abs(frame) .* window;
+
+            % Overlap-add synthesis
+            envelope(idx:idx+win_len-1, ch) = ...
+                envelope(idx:idx+win_len-1, ch) + envFrame;
+
+            idx = idx + hop;
+        end
+    end
+end
+
+
+% 9.0 Plot lowest and highest frequency channels
+subplot(2,2,3);
+plot(t, envelope(:,1));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title('Envelope of Lowest Frequency Channel');
+
+subplot(2,2,4);
+plot(t, envelope(:,N));
+xlabel('Time [s]');
+ylabel('Amplitude');
+title('Envelope of Highest Frequency Channel');
+sgtitle(filename);
+
+% ==================================
+% Phase 3 Starts Here
+% ==================================
+% T10 Generate cosine wave at centre frequency for each band
+fc = sqrt(bands(:,2) .* bands(:,3));   % vector of centre frequencies
+t = (0:length(y16)-1).' / fs16; % vector of time length of each band
+cosines = cos(2*pi * fc.' .* t); % cosine for each band at centre frequency
+
+% T11 Modulate each channel with rectified signal from T8
+modulated = envelope .* cosines; 
+
+% T12 Sum all signals together
+out = sum(modulated, 2);
+out = out ./ max(abs(out)+eps); % norm. signal by max of its abs values
+
+% T13 Play sound/write to file
+sound(out, fs16)
+audiowrite("Phase 3/" + filename + ".wav", out, fs16);
+end 
+
+% ==================================
+% Function definitions
+% ==================================
+
+function [filtered,bands] = filterBankButter(y16,fs16,N,fmin,fmax)
+    % Butterworth Bandpass filter designed using FDESIGN.BANDPASS. but
+    % modified heavily!!!
+    
+    y16 = y16(:); %note: fmax = fs/2
+    nyq = fs16/2; %must be below 8000 in filterdesigner
+    fmax = min(fmax,nyq*0.95); %here fmax is less than nyq (as output is weird)
+
+    % Comment out either Line 150 or 151 for linspace or logspace respectively
+    edges = logspace(log10(fmin), log10(fmax), N+1); %spaces them out equally
+    % edges = linspace(fmin, fmax, N+1); %spaces them out linearly (Phase-3)
+    filtered = zeros(numel(y16), N);
+    bands = zeros(N,4);  % [4 criteria for bandpass below]
+
+    for i = 1:N %split from fmin to fmax
+        fpass1 = edges(i);
+        fpass2 = edges(i+1);
+
+        % Changes implemented for filter comparison when changing design parameters
+        fstop1 = 0.8 * fpass1;   % always < fpass1  
+        if fstop1 < 10
+            fstop1 = 10;
+        end
+
+        fstop2 = min(nyq*0.95, fpass2 * 1.2);
+
+        poles = 6; %higher is greater drop but more computation
+
+        d = designfilt('bandpassiir', ...
+            'FilterOrder', poles, ...
+            'HalfPowerFrequency1', fpass1, ...
+            'HalfPowerFrequency2', fpass2, ...
+            'DesignMethod','butter', ...
+            'SampleRate', fs16);
+
+        filtered(:,i) = filter(d, double(y16)); %Zero-phase digital filtering, not for FIR since they depend on phase?
+        bands(i,:) = [fstop1 fpass1 fpass2 fstop2];
+        
+    end
+end
+
+%% input string filename, Do Phase 1 then phase 2
+% T3P1("FCL.m4a"); %1
+% T3P1("FCQ.m4a"); %2
+% T3P1("FVL.m4a"); %3
+% T3P1("FVQL.m4a");%4
+% T3P1("MCL.m4a"); %5
+% T3P1("MCQ.m4a"); %6
+% T3P1("ML.m4a");  %7
+% T3P1("MQ.m4a");  %8
+% T3P1("MVL.m4a"); %9
+% T3P1("MVQ.m4a"); %10
+
